@@ -77,7 +77,7 @@ unsigned int g_usb_state = USB_UNCONFIGURED;
 static bool usb_unlimited;
 #if defined(CONFIG_MTK_HAFG_20)
 #ifdef HIGH_BATTERY_VOLTAGE_SUPPORT
-BATTERY_VOLTAGE_ENUM g_cv_voltage = BATTERY_VOLT_04_350000_V;
+BATTERY_VOLTAGE_ENUM g_cv_voltage = BATTERY_VOLT_04_340000_V;
 #else
 BATTERY_VOLTAGE_ENUM g_cv_voltage = BATTERY_VOLT_04_200000_V;
 #endif
@@ -168,14 +168,14 @@ static unsigned int get_constant_voltage(void)
 		if (vbat_bif < vbat_auxadc && vbat_bif != 0) {
 			vbat = vbat_bif;
 			bif_ok = 1;
-			battery_log(BAT_LOG_CRTI, "[BIF]using vbat_bif=%d\n with dV=%dmV", vbat,
+			battery_log(BAT_LOG_FULL, "[BIF]using vbat_bif=%d\n with dV=%dmV", vbat,
 				    (vbat_bif - vbat_auxadc));
 		} else {
 			vbat = vbat_auxadc;
 			if (i < 5)
 				i++;
 			else {
-				battery_log(BAT_LOG_CRTI,
+				battery_log(BAT_LOG_FULL,
 					    "[BIF]using vbat_auxadc=%d, check vbat_bif=%d\n", vbat,
 					    vbat_bif);
 				bif_ok = 0;
@@ -417,7 +417,7 @@ static void battery_pump_express_algorithm_start(void)
 	kal_bool pumped_volt;
 	unsigned int chr_ovp_en;
 
-	battery_log(BAT_LOG_CRTI, "[PE+][battery_pump_express_algorithm_start]start PEP...");
+	battery_log(BAT_LOG_FULL, "[PE+][battery_pump_express_algorithm_start]start PEP...");
 #endif
 
 	mutex_lock(&ta_mutex);
@@ -538,7 +538,7 @@ static void battery_pump_express_algorithm_start(void)
 
 		battery_log(BAT_LOG_CRTI, "[PE+]mtk_ta_algorithm() end\n");
 	} else {
-		battery_log(BAT_LOG_CRTI, "[PE+]Not a TA charger, bypass TA algorithm\n");
+		battery_log(BAT_LOG_FULL, "[PE+]Not a TA charger, bypass TA algorithm\n");
 #if defined(TA_12V_SUPPORT)
 		batt_cust_data.v_charger_max = V_CHARGER_MAX;
 		chr_ovp_en = 1;
@@ -563,7 +563,7 @@ static BATTERY_VOLTAGE_ENUM select_jeita_cv(void)
 		cv_voltage = JEITA_TEMP_POS_45_TO_POS_60_CV_VOLTAGE;
 	} else if (g_temp_status == TEMP_POS_10_TO_POS_45) {
 		if (batt_cust_data.high_battery_voltage_support)
-			cv_voltage = BATTERY_VOLT_04_350000_V;
+			cv_voltage = BATTERY_VOLT_04_340000_V;
 		else
 			cv_voltage = JEITA_TEMP_POS_10_TO_POS_45_CV_VOLTAGE;
 	} else if (g_temp_status == TEMP_POS_0_TO_POS_10) {
@@ -751,25 +751,17 @@ void select_charging_current_bcct(void)
 		else if (g_bcct_value < 850)
 			g_temp_CC_value = CHARGE_CURRENT_750_00_MA;
 		else if (g_bcct_value < 950)
-			g_temp_CC_value = CHARGE_CURRENT_900_00_MA;
+			g_temp_CC_value = CHARGE_CURRENT_850_00_MA;
 		else if (g_bcct_value < 1050)
-			g_temp_CC_value = CHARGE_CURRENT_1000_00_MA;
+			g_temp_CC_value = CHARGE_CURRENT_950_00_MA;
 		else if (g_bcct_value < 1150)
 			g_temp_CC_value = CHARGE_CURRENT_1050_00_MA;
 		else if (g_bcct_value < 1250)
 			g_temp_CC_value = CHARGE_CURRENT_1150_00_MA;
 		else if (g_bcct_value == 1250)
 			g_temp_CC_value = CHARGE_CURRENT_1250_00_MA;
-#if defined(LYCONFIG_COMB_CHARGER_IC_MTK_SM5414_SUPPORT) || defined(LYCONFIG_COMB_CHARGER_IC_MTK_FAN5405_SUPPORT)
-		else if (g_bcct_value < 1800)
-			g_temp_CC_value = CHARGE_CURRENT_1500_00_MA;
-		else if (g_bcct_value >= 2000)
-			g_temp_CC_value = CHARGE_CURRENT_2000_00_MA;
-#endif		
 		else
 			g_temp_CC_value = CHARGE_CURRENT_650_00_MA;
-			
-		g_temp_input_CC_value = g_temp_CC_value;
 		/* --------------------------------------------------- */
 
 	} else {
@@ -900,38 +892,12 @@ unsigned int set_bat_charging_current_limit(int current_limit)
 	battery_log(BAT_LOG_CRTI, "[BATTERY] set_bat_charging_current_limit (%d)\r\n",
 		    current_limit);
 
-	printk("set_bat_charging_current_limit, current_limit=%d",current_limit);
 	if (current_limit != -1) {
 		g_bcct_flag = 1;
-		//printk("sm5414 charging_set_input_current current_limit = %d\n",current_limit);
-#if 0//def CONFIG_MTK_THERMAL_TEST_SUPPORT
+		g_bcct_value = current_limit;
+#ifdef CONFIG_MTK_THERMAL_TEST_SUPPORT
 		g_temp_CC_value = current_limit * 100;
 #else
-	#if defined(LYCONFIG_COMB_CHARGER_IC_MTK_SM5414_SUPPORT) || defined(LYCONFIG_COMB_CHARGER_IC_MTK_FAN5405_SUPPORT)
-        	#if defined(LYCONFIG_CHARGER_FAN5405_SUPPORT_HL7005)
-        	if(current_limit >= 650)
-			current_limit = 1400;
-        	else if(current_limit >= 450)
-			current_limit = 1000;
-        	else if(current_limit < 450)
-			current_limit = 800;
-        	#else/*LYCONFIG_CHARGER_FAN5405_SUPPORT_AS2482*/
-		if(current_limit >= 650) 
-			current_limit = 2000;
-		else if(current_limit >= 450) 
-			current_limit = 1500;
-		else if(current_limit < 450)
-			current_limit = 900;
-        	#endif
-	#else
-		if(current_limit >= 650)
-			current_limit = 1000;
-		else if(current_limit >= 450)
-			current_limit = 800;
-		else if(current_limit < 450)
-			current_limit = 650;
-	#endif
-		g_bcct_value = current_limit;
 		if (current_limit < 70)
 			g_temp_CC_value = CHARGE_CURRENT_0_00_MA;
 		else if (current_limit < 200)
@@ -968,12 +934,6 @@ unsigned int set_bat_charging_current_limit(int current_limit)
 			g_temp_CC_value = CHARGE_CURRENT_1500_00_MA;
 		else if (current_limit == 1600)
 			g_temp_CC_value = CHARGE_CURRENT_1600_00_MA;
-#if defined(LYCONFIG_COMB_CHARGER_IC_MTK_SM5414_SUPPORT) || defined(LYCONFIG_COMB_CHARGER_IC_MTK_FAN5405_SUPPORT)
-		else if (current_limit <= 2000)
-			g_temp_CC_value = CHARGE_CURRENT_2000_00_MA;
-		else if (current_limit >= 2500)
-			g_temp_CC_value = CHARGE_CURRENT_2500_00_MA;
-#endif		
 		else
 			g_temp_CC_value = CHARGE_CURRENT_450_00_MA;
 #endif
@@ -983,7 +943,6 @@ unsigned int set_bat_charging_current_limit(int current_limit)
 	}
 
 	/* wake_up_bat(); */
-	//printk("sm5414 charging_set_input_current g_temp_CC_value = %d\n",g_temp_CC_value);
 	pchr_turn_on_charging();
 
 	return g_bcct_flag;
@@ -992,8 +951,6 @@ unsigned int set_bat_charging_current_limit(int current_limit)
 
 void select_charging_current(void)
 {
-	
-	//printk("sm5414 BMT_status.charger_type = %d, g_ftm_battery_flag = %d,AC_CHARGER_CURRENT = %d\n",BMT_status.charger_type,g_ftm_battery_flag,batt_cust_data.ac_charger_current);
 	if (g_ftm_battery_flag) {
 		battery_log(BAT_LOG_CRTI, "[BATTERY] FTM charging : %d\r\n",
 			    charging_level_data[0]);
@@ -1041,9 +998,7 @@ void select_charging_current(void)
 			else
 				g_temp_input_CC_value = batt_cust_data.ac_charger_current;
 
-			//g_temp_CC_value = batt_cust_data.ac_charger_current;
-			g_temp_CC_value = AC_CHARGER_CURRENT;
-			//printk("sm5414 BMT_status.g_temp_input_CC_value = %d, g_temp_CC_value = %d\n",g_temp_input_CC_value,g_temp_CC_value);
+			g_temp_CC_value = batt_cust_data.ac_charger_current;
 #if defined(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT)
 			if (is_ta_connect == KAL_TRUE)
 				set_ta_charging_current();
@@ -1178,26 +1133,14 @@ static void pchr_turn_on_charging(void)
 			/*Set CV Voltage */
 #if !defined(CONFIG_MTK_JEITA_STANDARD_SUPPORT)
 			if (batt_cust_data.high_battery_voltage_support)
-				cv_voltage = BATTERY_VOLT_04_350000_V;
+				cv_voltage = BATTERY_VOLT_04_340000_V;
 			else
 				cv_voltage = BATTERY_VOLT_04_200000_V;
-				
+
 #ifdef CONFIG_MTK_DYNAMIC_BAT_CV_SUPPORT
 			cv_voltage = get_constant_voltage() * 1000;
-			battery_log(BAT_LOG_CRTI, "[BATTERY][BIF] Setting CV to %d\n", cv_voltage / 1000);
-#endif
-
-#if defined(HIGH_BATTERY_VOLTAGE_SUPPORT)
-#if defined(LYCONFIG_HIGH_BATTERY_VOLTAGE_44_SUPPORT)
-	cv_voltage = BATTERY_VOLT_04_400000_V; // VBATREG = 4.4000V
-#else
-	//sm5414_reg_config_interface(0x0D,0x1A); // VBATREG = 4.3375V
-	cv_voltage = BATTERY_VOLT_04_350000_V; // VBATREG = 4.3500V
-#endif	
-#else
-	cv_voltage = BATTERY_VOLT_04_200000_V; // VBATREG = 4.2V
-#endif
-
+			battery_log(BAT_LOG_FULL, "[BATTERY][BIF] Setting CV to %d\n", cv_voltage / 1000);
+			#endif
 			battery_charging_control(CHARGING_CMD_SET_CV_VOLTAGE, &cv_voltage);
 
 			#if defined(CONFIG_MTK_HAFG_20)
@@ -1384,3 +1327,4 @@ void mt_battery_charging_algorithm(void)
 
 	battery_charging_control(CHARGING_CMD_DUMP_REGISTER, NULL);
 }
+
