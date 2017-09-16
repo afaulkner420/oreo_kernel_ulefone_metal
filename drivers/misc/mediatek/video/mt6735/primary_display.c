@@ -109,6 +109,7 @@ static disp_mem_output_config mem_config;
 
 static unsigned int primary_session_id = MAKE_DISP_SESSION(DISP_SESSION_PRIMARY, 0);
 unsigned int ext_session_id = MAKE_DISP_SESSION(DISP_SESSION_MEMORY, 2);
+static bool needs_apply_rgb = false;
 
 /* primary display uses itself's abs macro */
 #ifdef abs
@@ -300,6 +301,16 @@ static DISP_POWER_STATE primary_get_state(void)
 {
 	return pgc->state;
 }
+
+static void apply_rgb(void)
+{
+	ssize_t count;
+	char* buf = (char*) kmalloc(19, GFP_KERNEL);
+	count = mtk_disp_ld_get_rgb(NULL, NULL, buf);
+	mtk_disp_ld_set_rgb(NULL, NULL, buf, count);
+	kfree(buf);
+}
+
 static DISP_POWER_STATE primary_set_state(DISP_POWER_STATE new_state)
 {
 	DISP_POWER_STATE old_state = pgc->state;
@@ -6119,6 +6130,8 @@ done:
 #endif
 	ddp_dump_analysis(DISP_MODULE_RDMA0);
 
+	if (needs_apply_rgb) apply_rgb();
+
 	return 0;
 }
 
@@ -7525,6 +7538,11 @@ done:
 	return 0;		/* avoid build warning. */
 }
 #endif
+
+void set_needs_apply_rgb(bool needed)
+{
+	needs_apply_rgb = needed;
+}
 
 int primary_display_is_alive(void)
 {
