@@ -198,14 +198,9 @@ static struct mount *next_group(struct mount *m, struct mount *origin)
 
 /* all accesses are serialized by namespace_sem */
 static struct user_namespace *user_ns;
-static struct mount *last_dest, *first_source, *last_source, *dest_master;
+static struct mount *last_dest, *last_source, *dest_master;
 static struct mountpoint *mp;
-static struct hlist_head *list;
-
-static inline bool peers(struct mount *m1, struct mount *m2)
-{
-	return m1->mnt_group_id == m2->mnt_group_id && m1->mnt_group_id;
-}
+static struct list_head *list;
 
 static int propagate_one(struct mount *m)
 {
@@ -217,26 +212,24 @@ static int propagate_one(struct mount *m)
 	/* skip if mountpoint isn't covered by it */
 	if (!is_subdir(mp->m_dentry, m->mnt.mnt_root))
 		return 0;
-	if (peers(m, last_dest)) {
+	if (m->mnt_group_id == last_dest->mnt_group_id) {
 		type = CL_MAKE_SHARED;
 	} else {
 		struct mount *n, *p;
-		bool done;
 		for (n = m; ; n = p) {
 			p = n->mnt_master;
-			if (p == dest_master || IS_MNT_MARKED(p))
+			if (p == dest_master || IS_MNT_MARKED(p)) {
+				while (last_dest->mnt_master != p) {
+					last_source = last_source->mnt_master;
+					last_dest = last_source->mnt_parent;
+				}
+				if (n->mnt_group_id != last_dest->mnt_group_id) {
+					last_source = last_source->mnt_master;
+					last_dest = last_source->mnt_parent;
+				}
 				break;
+			}
 		}
-		do {
-			struct mount *parent = last_source->mnt_parent;
-			if (last_source == first_source)
-				break;
-			done = parent->mnt_master == p;
-			if (done && peers(n, parent))
-				break;
-			last_source = last_source->mnt_master;
-		} while (!done);
-
 		type = CL_SLAVE;
 		/* beginning of peer group among the slaves? */
 		if (IS_MNT_SHARED(m))
@@ -253,11 +246,11 @@ static int propagate_one(struct mount *m)
 	last_dest = m;
 	last_source = child;
 	if (m->mnt_master != dest_master) {
-		read_seqlock_excl(&mount_lock);
+		br_write_lock(&vfsmount_lock);
 		SET_MNT_MARK(m->mnt_master);
-		read_sequnlock_excl(&mount_lock);
+		br_write_unlock(&vfsmount_lock);
 	}
-	hlist_add_head(&child->mnt_hash, list);
+	list_add_tail(&child->mnt_hash, list);
 	return 0;
 }
 
@@ -275,7 +268,7 @@ static int propagate_one(struct mount *m)
  * @tree_list : list of heads of trees to be attached.
  */
 int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
-		    struct mount *source_mnt, struct hlist_head *tree_list)
+		    struct mount *source_mnt, struct list_head *tree_list)
 {
 	struct mount *m, *n;
 	int ret = 0;
@@ -287,7 +280,6 @@ int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
 	 */
 	user_ns = current->nsproxy->mnt_ns->user_ns;
 	last_dest = dest_mnt;
-	first_source = source_mnt;
 	last_source = source_mnt;
 	mp = dest_mp;
 	list = tree_list;
@@ -313,13 +305,13 @@ int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
 		} while (n != m);
 	}
 out:
-	read_seqlock_excl(&mount_lock);
-	hlist_for_each_entry(n, tree_list, mnt_hash) {
+	br_write_lock(&vfsmount_lock);
+	list_for_each_entry(n, tree_list, mnt_hash) {
 		m = n->mnt_parent;
 		if (m->mnt_master != dest_mnt->mnt_master)
 			CLEAR_MNT_MARK(m->mnt_master);
 	}
-	read_sequnlock_excl(&mount_lock);
+	br_write_unlock(&vfsmount_lock);
 	return ret;
 }
 
@@ -328,7 +320,8 @@ out:
  */
 static inline int do_refcount_check(struct mount *mnt, int count)
 {
-	return mnt_get_count(mnt) > count;
+	int mycount = mnt_get_count(mnt) - mnt->mnt_ghosts;
+	return (mycount > count);
 }
 
 /*
@@ -360,7 +353,7 @@ int propagate_mount_busy(struct mount *mnt, int refcnt)
 
 	for (m = propagation_next(parent, parent); m;
 	     		m = propagation_next(m, parent)) {
-		child = __lookup_mnt_last(&m->mnt, mnt->mnt_mountpoint);
+		child = __lookup_mnt(&m->mnt, mnt->mnt_mountpoint, 0);
 		if (child && list_empty(&child->mnt_mounts) &&
 		    (ret = do_refcount_check(child, 1)))
 			break;
@@ -382,17 +375,14 @@ static void __propagate_umount(struct mount *mnt)
 	for (m = propagation_next(parent, parent); m;
 			m = propagation_next(m, parent)) {
 
-		struct mount *child = __lookup_mnt_last(&m->mnt,
-						mnt->mnt_mountpoint);
+		struct mount *child = __lookup_mnt(&m->mnt,
+					mnt->mnt_mountpoint, 0);
 		/*
 		 * umount the child only if the child has no
 		 * other children
 		 */
-		if (child && list_empty(&child->mnt_mounts)) {
-			list_del_init(&child->mnt_child);
-			hlist_del_init_rcu(&child->mnt_hash);
-			hlist_add_before_rcu(&child->mnt_hash, &mnt->mnt_hash);
-		}
+		if (child && list_empty(&child->mnt_mounts))
+			list_move_tail(&child->mnt_hash, &mnt->mnt_hash);
 	}
 }
 
@@ -403,11 +393,11 @@ static void __propagate_umount(struct mount *mnt)
  *
  * vfsmount lock must be held for write
  */
-int propagate_umount(struct hlist_head *list)
+int propagate_umount(struct list_head *list)
 {
 	struct mount *mnt;
 
-	hlist_for_each_entry(mnt, list, mnt_hash)
+	list_for_each_entry(mnt, list, mnt_hash)
 		__propagate_umount(mnt);
 	return 0;
 }
@@ -420,14 +410,9 @@ static struct mount *next_descendent(struct mount *root, struct mount *cur)
 	if (!IS_MNT_NEW(cur) && !list_empty(&cur->mnt_slave_list))
 		return first_slave(cur);
 	do {
-		struct mount *master = cur->mnt_master;
-
-		if (!master || cur->mnt_slave.next != &master->mnt_slave_list) {
-			struct mount *next = next_slave(cur);
-
-			return (next == root) ? NULL : next;
-		}
-		cur = master;
+		if (cur->mnt_slave.next != &cur->mnt_master->mnt_slave_list)
+			return next_slave(cur);
+		cur = cur->mnt_master;
 	} while (cur != root);
 	return NULL;
 }
@@ -445,3 +430,4 @@ void propagate_remount(struct mount *mnt)
 		}
 	}
 }
+

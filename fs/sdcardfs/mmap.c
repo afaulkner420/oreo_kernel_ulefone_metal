@@ -66,8 +66,8 @@ out:
 	return err;
 }
 
-static ssize_t sdcardfs_direct_IO(int rw, struct kiocb *iocb,
-		struct iov_iter *iter, loff_t pos)
+static ssize_t sdcardfs_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
+				  loff_t offset, unsigned long nr_segs)
 {
 	/*
 	 * This function should never be called directly.  We need it
@@ -87,3 +87,4 @@ const struct vm_operations_struct sdcardfs_vm_ops = {
 	.open		= sdcardfs_vm_open,
 	.close		= sdcardfs_vm_close,
 };
+

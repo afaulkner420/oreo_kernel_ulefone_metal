@@ -109,7 +109,7 @@ static int sdcardfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 		goto out;
 
 	/* If our top's inode is gone, we may be out of date */
-	inode = igrab(dentry->d_inode);
+	inode = igrab(d_inode(dentry));
 	if (inode) {
 		data = top_data_get(SDCARDFS_I(inode));
 		if (!data || data->abandoned) {
@@ -139,7 +139,7 @@ static void sdcardfs_d_release(struct dentry *dentry)
 }
 
 static int sdcardfs_hash_ci(const struct dentry *dentry,
-				struct qstr *qstr)
+				const struct inode *inode, struct qstr *qstr)
 {
 	/*
 	 * This function is copy of vfat_hashi.
@@ -154,7 +154,7 @@ static int sdcardfs_hash_ci(const struct dentry *dentry,
 	name = qstr->name;
 	len = qstr->len;
 
-	hash = init_name_hash();
+	hash = 0;//init_name_hash(dentry);
 	while (len--)
 		hash = partial_name_hash(tolower(*name++), hash);
 	qstr->hash = end_name_hash(hash);
@@ -166,7 +166,8 @@ static int sdcardfs_hash_ci(const struct dentry *dentry,
  * Case insensitive compare of two vfat names.
  */
 static int sdcardfs_cmp_ci(const struct dentry *parent,
-		const struct dentry *dentry,
+		const struct inode *pinode,
+		const struct dentry *dentry, const struct inode *inode,
 		unsigned int len, const char *str, const struct qstr *name)
 {
 	/* FIXME Should we support national language? */
@@ -191,4 +192,5 @@ const struct dentry_operations sdcardfs_ci_dops = {
 	.d_compare	= sdcardfs_cmp_ci,
 	.d_canonical_path = sdcardfs_canonical_path,
 };
+
 
