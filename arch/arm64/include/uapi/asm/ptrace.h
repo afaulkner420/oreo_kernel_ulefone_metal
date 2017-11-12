@@ -23,6 +23,7 @@
 
 #include <asm/hwcap.h>
 
+#define PTRACE_SET_SYSCALL	23
 
 /*
  * PSR bits
@@ -71,11 +72,14 @@ struct user_pt_regs {
 	__u64		pstate;
 };
 
+#if defined (__LP64__)
 struct user_fpsimd_state {
 	__uint128_t	vregs[32];
 	__u32		fpsr;
 	__u32		fpcr;
+	__u32		__reserved[2];
 };
+#endif
 
 struct user_hwdebug_state {
 	__u32		dbg_info;
@@ -90,3 +94,4 @@ struct user_hwdebug_state {
 #endif /* __ASSEMBLY__ */
 
 #endif /* _UAPI__ASM_PTRACE_H */
+
