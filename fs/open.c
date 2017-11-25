@@ -697,6 +697,10 @@ static int do_dentry_open(struct file *f,
 		f->f_mode |= FMODE_SPLICE_WRITE | FMODE_SPLICE_READ;
 
 
+	if (S_ISREG(inode->i_mode))
+		f->f_mode |= FMODE_SPLICE_WRITE | FMODE_SPLICE_READ;
+
+
 	f->f_op = fops_get(inode->i_fop);
 
 	error = security_file_open(f, cred);
